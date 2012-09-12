@@ -1,6 +1,9 @@
 #!/usr/bin/perl
 #
 # Simple program for upgrading buildings on a planet.
+# based on https://github.com/lemming552/Lacuna.git
+# bin/upgrade_spaceports.pl
+#
 
 use strict;
 use warnings;
