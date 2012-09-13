@@ -150,8 +150,10 @@ sub bstats {
     my $command_type = Games::Lacuna::Client::Buildings::type_from_url($command_url);
     my @tags = Games::Lacuna::Client::Types::get_tags($command_type);
 
-    my $glyph   = grep {/glyph/} @tags;
-    my $command = grep {/command/} @tags;
+    my $sculpture = grep {/sculpture/} @tags;
+    my $glyph     = grep {/glyph/}     @tags;
+    my $command   = grep {/command/}   @tags;
+    next if( $sculpture);
     next if( $glyph && ! $command);
 
     if ( $command_type eq 'GasGiantPlatform' && ( ! $opts{g} ) ) {
