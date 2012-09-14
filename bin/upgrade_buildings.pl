@@ -19,6 +19,9 @@ use Try::Tiny;
 use List::Util qw(min);
 use List::MoreUtils qw(none);
 
+use Data::Dumper;
+
+
   my %opts = (
         g => 0,
         h => 0,
@@ -27,7 +30,7 @@ use List::MoreUtils qw(none);
         config => "lacuna.yml",
         dumpfile => "log/building_upgrades.js",
         station => 0,
-        wait    => 14 * 60 * 60,
+        wait    => 60 * 24 * 60 * 60 *60,
   );
 
   GetOptions(\%opts,
@@ -55,7 +58,7 @@ use List::MoreUtils qw(none);
   my $json = JSON->new->utf8(1);
   $json = $json->pretty([1]);
   $json = $json->canonical([1]);
-  open(OUTPUT, ">", $opts{dumpfile}) || die "Could not open $opts{dumpfile} for writing.";
+  #open(OUTPUT, ">", $opts{dumpfile}) || die "Could not open $opts{dumpfile} for writing.";
 
   my $status;
   my $empire = $glc->empire->get_status->{empire};
@@ -65,99 +68,107 @@ use List::MoreUtils qw(none);
 my %planets = reverse %{ $empire->{planets} };
   #my %planets = map { $empire->{planets}{$_}, $_ } keys %{$empire->{planets}};
   #$status->{planets} = \%planets;
-  #my $short_time = $opts{wait} + 1;
+  my $short_time = $opts{wait} + 1;
 
 my $keep_going = 1;
+my $pname;
+my @skip_planets;
 do {
-#PLANETS:for my $pname ( keys %planets ) {
-  my $pname;
-  my @skip_planets;
-  PNAME:for $pname (sort keys %planets) {
-    #if ($opts{planet} and not (grep { $pname eq $_ } @{$opts{planet}})) {
-    if ($opts{planet}) {
-      next PLANET if none { lc $pname eq lc $_ } @{ $opts{planet} };
-      #push @skip_planets, $pname;
-      #next;
-    }
-    print "Inspecting $pname\n";
-    my $planet    = $glc->body(id => $planets{$pname});
-    my $result    = $planet->get_buildings;
-    my $buildings = $result->{buildings};
+PNAME:for $pname (sort keys %planets) {
+  if ($opts{planet}) {
+      next PNAME if none { lc $pname eq lc $_ } @{ $opts{planet} };
+  }
 
-    my $station = $result->{status}{body}{type} eq 'space station' ? 1 : 0;
-    if ($station) {
-      push @skip_planets, $pname;
-      next;
-    }
-    my ($sarr) = bstats($buildings, $station);
-    my $seconds = $opts{wait} + 1;
-    for my $bld (@$sarr) {
-      printf "%7d %10s l:%2d x:%2d y:%2d\n",
-             $bld->{id}, $bld->{name},
-             $bld->{level}, $bld->{x}, $bld->{y};
+  print "Inspecting $pname\n";
+  my $planet    = $glc->body(id => $planets{$pname});
+  my $result    = $planet->get_buildings;
+  my $buildings = $result->{buildings};
 
-      my $type = get_type_from_url($bld->{url});
-      my $bldpnt = $glc->building( id => $bld->{id}, type => $type);
-      $seconds = $bldstat->{building}->{pending_build}->{seconds_remaining};
-      try {
-        $bldstat = $bldpnt->upgrade();
-      }
-      catch {
-        say qq(Upgrade failed: $_);
-      };
+  my $station = $result->{status}{body}{type} eq 'space station' ? 1 : 0;
+  if ($station) {
+    push @skip_planets, $pname;
+    next PNAME;
+  }
 
-=pod
-     my $ok;
-     my $bldstat = "Bad";
-     $ok = eval {
-        my $type = get_type_from_url($bld->{url});
-        my $bldpnt = $glc->building( id => $bld->{id}, type => $type);
-        $bldstat = $bldpnt->upgrade();
-        $seconds = $bldstat->{building}->{pending_build}->{seconds_remaining} - 15;
-        };
-        unless ($ok) {
-          print "$@ Error; sleeping 60\n";
-          sleep 60;
-        }
-=cut
-      }
-      $status->{"$pname"} = $sarr;
-      if ($seconds > $opts{wait}) {
-        print "Queue of ", sec2str($seconds),
-              " is longer than wait period of ",sec2str($opts{wait}), ", taking $pname off of list.\n";
-        push @skip_planets, $pname;
-      }
-      elsif ($seconds < $short_time) {
-        $short_time = $seconds;
-      }
+  my ($sarr) = bstats($buildings, $station);
+  my $seconds = $opts{wait} + 1;
+  BLD:for my $bld (@$sarr) {
+
+    say qq(SECONDS: $seconds, SHORT_TIME: $short_time);
+
+    printf "%7d %10s l:%2d x:%2d y:%2d\n",
+           $bld->{id}, $bld->{name},
+           $bld->{level}, $bld->{x}, $bld->{y};
+
+    my $type = get_type_from_url($bld->{url});
+    my $bldpnt = $glc->building( id => $bld->{id}, type => $type);
+
+    if ( exists $bld->{pending_build} ) {
+      $seconds = $bld->{pending_build}->{seconds_remaining};
+      say qq( pending build for seconds: $seconds);
+      #$short_time = $seconds;
+      ($seconds, $short_time) = seconds_check($seconds, $short_time);
+       next BLD;
     }
-    print "Done with: ",join(":", sort @skip_planets), "\n";
-    for $pname (@skip_planets) {
-      delete $planets{$pname};
+    my $bldstat = "Bad";
+    try {
+      $bldstat = $bldpnt->upgrade();
     }
-    if (keys %planets) {
-      print "Clearing Queue for ",sec2str($short_time),".\n";
+    catch {
+      say qq(Upgrade failed: $_);
+      if ( m/no room left in the build queue/) {
+        next PNAME;
+      }
+      elsif (m/You must complete the pending build first/) {
+        $seconds = $bld->{pending_build}->{seconds_remaining};
+        say qq(seconds: $seconds);
+        ($seconds, $short_time) = seconds_check($seconds, $short_time);
+        next BLD;
+      }
+      else {
+        next BLD;
+      }
+    };
+    $seconds = $bld->{pending_build}->{seconds_remaining};
+    ($seconds, $short_time) = seconds_check($seconds, $short_time);
+  }
+  $status->{"$pname"} = $sarr;
+  ($seconds, $short_time) = seconds_check($seconds, $short_time);
+}
+    #print "Done with: ",join(":", sort @skip_planets), "\n";
+    #for $pname (@skip_planets) {
+      #delete $planets{$pname};
+    #}
+    #if (keys %planets) {
+      #print "Clearing Queue for ",sec2str($short_time),".\n";
+      say qq(sleeping for $short_time seconds);
       sleep $short_time;
-    }
-    else {
-      print "Nothing Else to do.\n";
-      $keep_going = 0;
-    }
-  } while ($keep_going);
+    #}
+    #else {
+      #print "Nothing Else to do.\n";
+      #$keep_going = 0;
+    #}
 
- print OUTPUT $json->pretty->canonical->encode($status);
- close(OUTPUT);
- print "Ending   RPC: $glc->{rpc_count}\n";
+#print OUTPUT $json->pretty->canonical->encode($status);
+#close(OUTPUT);
+print "Ending   RPC: $glc->{rpc_count}\n";
+} while ($keep_going);
 
-exit;
-
+exit(0);
+sub seconds_check {
+  my ($seconds, $short_time) = @_;
+  if ($seconds < $short_time) {
+      $short_time = $seconds;
+  }
+  return($seconds, $short_time);
+}
 sub bstats {
   my ($bhash, $station) = @_;
 
   my $bcnt = 0;
   my $dlevel = $station ? 121 : 0;
   my @sarr;
-  for my $bid (keys %$bhash) {
+  BID:for my $bid (keys %$bhash) {
     if ($bhash->{$bid}->{name} eq "Development Ministry") {
       $dlevel = $bhash->{$bid}->{level};
     }
@@ -172,25 +183,20 @@ sub bstats {
 
     my $sculpture = grep {/sculpture/} @tags;
     my $glyph     = grep {/glyph/}     @tags;
-    my $sculpture = grep {/sculpture/} @tags;
     my $command   = grep {/command/}   @tags;
     next if( $sculpture);
     next if( $glyph && ! $command);
 
     if ( $command_type eq 'GasGiantPlatform' && ( ! $opts{g} ) ) {
-        next;
+        next BID;
     }
-#    elsif ($bhash->{$bid}->{name} eq "Waste Sequestration Well") {
-    #elsif ($bhash->{$bid}->{name} eq "Space Port") {
-#    elsif ($bhash->{$bid}->{name} eq "Shield Against Weapons") {
-      my $ref = $bhash->{$bid};
-      $ref->{id} = $bid;
-      push @sarr, $ref if ($ref->{level} < $opts{maxlevel} && $ref->{efficiency} == 100);
-    #}
+    my $ref = $bhash->{$bid};
+    $ref->{id} = $bid;
+    push @sarr, $ref if ($ref->{level} < $opts{maxlevel} && $ref->{efficiency} == 100);
+    @sarr = sort { $a->{level} <=> $b->{level} ||
+                   $a->{x} <=> $b->{x} ||
+                   $a->{y} <=> $b->{y} } @sarr;
   }
-  @sarr = sort { $a->{level} <=> $b->{level} ||
-                 $a->{x} <=> $b->{x} ||
-                 $a->{y} <=> $b->{y} } @sarr;
 
 =pod
   if (scalar @sarr > ($dlevel + 1 - $bcnt)) {
