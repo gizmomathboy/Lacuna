@@ -98,7 +98,7 @@ do {
 
       my $type = get_type_from_url($bld->{url});
       my $bldpnt = $glc->building( id => $bld->{id}, type => $type);
-      $seconds = $bldstat->{building}->{pending_build}->{seconds_remaining} - 15;
+      $seconds = $bldstat->{building}->{pending_build}->{seconds_remaining};
       try {
         $bldstat = $bldpnt->upgrade();
       }
