@@ -94,8 +94,6 @@ PNAME:for $pname (sort keys %planets) {
   my $seconds = $opts{wait} + 1;
   BLD:for my $bld (@$sarr) {
 
-    say qq(SECONDS: $seconds, SHORT_TIME: $short_time);
-
     printf "%7d %10s l:%2d x:%2d y:%2d\n",
            $bld->{id}, $bld->{name},
            $bld->{level}, $bld->{x}, $bld->{y};
@@ -106,7 +104,6 @@ PNAME:for $pname (sort keys %planets) {
     if ( exists $bld->{pending_build} ) {
       $seconds = $bld->{pending_build}->{seconds_remaining};
       say qq( pending build for seconds: $seconds);
-      #$short_time = $seconds;
       ($seconds, $short_time) = seconds_check($seconds, $short_time);
        next BLD;
     }
@@ -121,7 +118,7 @@ PNAME:for $pname (sort keys %planets) {
       }
       elsif (m/You must complete the pending build first/) {
         $seconds = $bld->{pending_build}->{seconds_remaining};
-        say qq(seconds: $seconds);
+        say qq( pending seconds: $seconds);
         ($seconds, $short_time) = seconds_check($seconds, $short_time);
         next BLD;
       }
@@ -129,29 +126,18 @@ PNAME:for $pname (sort keys %planets) {
         next BLD;
       }
     };
-    $seconds = $bld->{pending_build}->{seconds_remaining};
+
+    $seconds = $bldstat->{building}->{pending_build}->{seconds_remaining};
     ($seconds, $short_time) = seconds_check($seconds, $short_time);
+    say qq( upgrade seconds: $seconds);
   }
   $status->{"$pname"} = $sarr;
   ($seconds, $short_time) = seconds_check($seconds, $short_time);
 }
-    #print "Done with: ",join(":", sort @skip_planets), "\n";
-    #for $pname (@skip_planets) {
-      #delete $planets{$pname};
-    #}
-    #if (keys %planets) {
-      #print "Clearing Queue for ",sec2str($short_time),".\n";
-      say qq(sleeping for $short_time seconds);
-      sleep $short_time;
-    #}
-    #else {
-      #print "Nothing Else to do.\n";
-      #$keep_going = 0;
-    #}
-
-#print OUTPUT $json->pretty->canonical->encode($status);
-#close(OUTPUT);
-print "Ending   RPC: $glc->{rpc_count}\n";
+  say qq(Ending   RPC: $glc->{rpc_count});
+  say qq(sleeping for $short_time seconds);
+  sleep $short_time;
+  $short_time = $opts{wait} + 1;
 } while ($keep_going);
 
 exit(0);
