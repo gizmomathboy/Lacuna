@@ -110,6 +110,7 @@ PNAME:for $pname (sort keys %planets) {
     my $bldstat = "Bad";
     try {
       $bldstat = $bldpnt->upgrade();
+      sleep(1);
     }
     catch {
       say qq(Upgrade failed: $_);
