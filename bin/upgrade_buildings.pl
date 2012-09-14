@@ -14,7 +14,10 @@ use Games::Lacuna::Client;
 use Games::Lacuna::Client::Types qw( get_tags building_type_from_label meta_type );
 use Getopt::Long qw(GetOptions);
 use JSON;
-use Exception::Class;
+#use Exception::Class;
+use Try::Tiny;
+use List::Util qw(min);
+use List::MoreUtils qw(none);
 
   my %opts = (
         g => 0,
@@ -58,48 +61,65 @@ use Exception::Class;
   my $empire = $glc->empire->get_status->{empire};
   print "Starting RPC: $glc->{rpc_count}\n";
 
-# Get planets
-  my %planets = map { $empire->{planets}{$_}, $_ } keys %{$empire->{planets}};
-  $status->{planets} = \%planets;
-  my $short_time = $opts{wait} + 1;
+## Get planets
+my %planets = reverse %{ $empire->{planets} };
+  #my %planets = map { $empire->{planets}{$_}, $_ } keys %{$empire->{planets}};
+  #$status->{planets} = \%planets;
+  #my $short_time = $opts{wait} + 1;
 
-  my $keep_going = 1;
-  do {
-    my $pname;
-    my @skip_planets;
-    for $pname (sort keys %planets) {
-      if ($opts{planet} and not (grep { $pname eq $_ } @{$opts{planet}})) {
-        push @skip_planets, $pname;
-        next;
-      }
-      print "Inspecting $pname\n";
-      my $planet    = $glc->body(id => $planets{$pname});
-      my $result    = $planet->get_buildings;
-      my $buildings = $result->{buildings};
+my $keep_going = 1;
+do {
+#PLANETS:for my $pname ( keys %planets ) {
+  my $pname;
+  my @skip_planets;
+  PNAME:for $pname (sort keys %planets) {
+    #if ($opts{planet} and not (grep { $pname eq $_ } @{$opts{planet}})) {
+    if ($opts{planet}) {
+      next PLANET if none { lc $pname eq lc $_ } @{ $opts{planet} };
+      #push @skip_planets, $pname;
+      #next;
+    }
+    print "Inspecting $pname\n";
+    my $planet    = $glc->body(id => $planets{$pname});
+    my $result    = $planet->get_buildings;
+    my $buildings = $result->{buildings};
 
-      my $station = $result->{status}{body}{type} eq 'space station' ? 1 : 0;
-      if ($station) {
-        push @skip_planets, $pname;
-        next;
+    my $station = $result->{status}{body}{type} eq 'space station' ? 1 : 0;
+    if ($station) {
+      push @skip_planets, $pname;
+      next;
+    }
+    my ($sarr) = bstats($buildings, $station);
+    my $seconds = $opts{wait} + 1;
+    for my $bld (@$sarr) {
+      printf "%7d %10s l:%2d x:%2d y:%2d\n",
+             $bld->{id}, $bld->{name},
+             $bld->{level}, $bld->{x}, $bld->{y};
+
+      my $type = get_type_from_url($bld->{url});
+      my $bldpnt = $glc->building( id => $bld->{id}, type => $type);
+      $seconds = $bldstat->{building}->{pending_build}->{seconds_remaining} - 15;
+      try {
+        $bldstat = $bldpnt->upgrade();
       }
-      my ($sarr) = bstats($buildings, $station);
-      my $seconds = $opts{wait} + 1;
-      for my $bld (@$sarr) {
-        printf "%7d %10s l:%2d x:%2d y:%2d\n",
-                 $bld->{id}, $bld->{name},
-                 $bld->{level}, $bld->{x}, $bld->{y};
-        my $ok;
-        my $bldstat = "Bad";
-        $ok = eval {
-          my $type = get_type_from_url($bld->{url});
-          my $bldpnt = $glc->building( id => $bld->{id}, type => $type);
-          $bldstat = $bldpnt->upgrade();
-          $seconds = $bldstat->{building}->{pending_build}->{seconds_remaining} - 15;
+      catch {
+        say qq(Upgrade failed: $_);
+      };
+
+=pod
+     my $ok;
+     my $bldstat = "Bad";
+     $ok = eval {
+        my $type = get_type_from_url($bld->{url});
+        my $bldpnt = $glc->building( id => $bld->{id}, type => $type);
+        $bldstat = $bldpnt->upgrade();
+        $seconds = $bldstat->{building}->{pending_build}->{seconds_remaining} - 15;
         };
         unless ($ok) {
           print "$@ Error; sleeping 60\n";
           sleep 60;
         }
+=cut
       }
       $status->{"$pname"} = $sarr;
       if ($seconds > $opts{wait}) {
@@ -150,8 +170,10 @@ sub bstats {
     my $command_type = Games::Lacuna::Client::Buildings::type_from_url($command_url);
     my @tags = Games::Lacuna::Client::Types::get_tags($command_type);
 
-    my $glyph   = grep {/glyph/} @tags;
-    my $command = grep {/command/} @tags;
+    my $glyph     = grep {/glyph/}     @tags;
+    my $sculpture = grep {/sculpture/} @tags;
+    my $command   = grep {/command/}   @tags;
+    next if( $sculpture);
     next if( $glyph && ! $command);
 
     if ( $command_type eq 'GasGiantPlatform' && ( ! $opts{g} ) ) {
