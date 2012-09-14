@@ -170,6 +170,7 @@ sub bstats {
     my $command_type = Games::Lacuna::Client::Buildings::type_from_url($command_url);
     my @tags = Games::Lacuna::Client::Types::get_tags($command_type);
 
+    my $sculpture = grep {/sculpture/} @tags;
     my $glyph     = grep {/glyph/}     @tags;
     my $sculpture = grep {/sculpture/} @tags;
     my $command   = grep {/command/}   @tags;
