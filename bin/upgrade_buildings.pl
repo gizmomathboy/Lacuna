@@ -134,6 +134,7 @@ PNAME:for $pname (sort keys %planets) {
   }
   $status->{"$pname"} = $sarr;
   ($seconds, $short_time) = seconds_check($seconds, $short_time);
+  sleep(1);
 }
   say qq(Ending   RPC: $glc->{rpc_count});
   say qq(sleeping for $short_time seconds);
